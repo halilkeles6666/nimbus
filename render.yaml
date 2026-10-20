@@ -7,11 +7,7 @@ services:
     buildCommand: "bundle install"
     startCommand: "bundle exec puma -p $PORT"
     envVars:
-      # Shared secret that protects /break and /heal. Set the SAME value on
-      # Klaxon (NIMBUS_TOKEN) so Klaxon can call /heal.
-      - key: NIMBUS_TOKEN
-        sync: false
-      # Where Nimbus pushes an alert when a component breaks — Klaxon's public
-      # JSON ingest, e.g. https://klaxon-wgno.onrender.com/api/alerts
+      # Klaxon's ingest URL; the telemetry URL is derived from it.
+      # e.g. https://klaxon-wgno.onrender.com/api/alerts
       - key: KLAXON_INGEST_URL
         sync: false

@@ -33,12 +33,6 @@ def fault_of(component) = FAULT_LOCK.synchronize { FAULTS[component] }
 def set_fault(component, fault) = FAULT_LOCK.synchronize { FAULTS[component] = fault }
 def clear_fault(component) = FAULT_LOCK.synchronize { FAULTS.delete(component) }
 
-def authorized?
-  expected = ENV["NIMBUS_TOKEN"].to_s
-  expected.empty? || params[:token].to_s == expected ||
-    request.env["HTTP_X_NIMBUS_TOKEN"].to_s == expected
-end
-
 # ---- telemetry the store reports to Klaxon (self-monitoring) ----------------
 
 # Realistic metrics per component given its (hidden) fault.
@@ -151,18 +145,15 @@ get "/panel" do
   rows = COMPONENTS.map { |key, name|
     f = fault_of(key)
     buttons = FAULTS_CATALOG.keys.map { |fault|
-      "<form method='post' action='/break' style='display:inline'><input type='hidden' name='component' value='#{key}'><input type='hidden' name='fault' value='#{fault}'><input type='hidden' name='token' value='#{params[:token]}'><button class='btn small'>#{fault}</button></form>"
+      "<form method='post' action='/break' style='display:inline'><input type='hidden' name='component' value='#{key}'><input type='hidden' name='fault' value='#{fault}'><button class='btn small'>#{fault}</button></form>"
     }.join(" ")
-    heal = "<form method='post' action='/heal' style='display:inline'><input type='hidden' name='component' value='#{key}'><input type='hidden' name='action' value='#{f ? FAULTS_CATALOG[f][0] : ''}'><input type='hidden' name='token' value='#{params[:token]}'><button class='btn small ghost'>düzelt</button></form>"
+    heal = "<form method='post' action='/heal' style='display:inline'><input type='hidden' name='component' value='#{key}'><input type='hidden' name='action' value='#{f ? FAULTS_CATALOG[f][0] : ''}'><button class='btn small ghost'>düzelt</button></form>"
     "<tr><td><b>#{name}</b><br><small>#{key}</small></td><td>#{f ? "<span class='bad'>#{f}</span> #{heal}" : "<span class='good'>sağlıklı</span>"}</td><td>#{buttons}</td></tr>"
   }.join
-  token_warn = ENV["NIMBUS_TOKEN"].to_s.empty? || !params[:token].to_s.empty? ? "" : "<p style='color:#dc2626'>⚠️ Arıza vermek için önce token gir.</p>"
-  token_box = "<form method='get' action='/panel' style='margin:0 0 14px'><input name='token' value='#{params[:token]}' placeholder='token' style='padding:8px;border:1px solid #e2e8f0;border-radius:8px;min-width:280px'> <button class='btn small'>Uygula</button></form>"
-  page("Nimbus — Panel", "<h1>Durum paneli</h1><p>Bir bileşene arıza ver; site gerçekten bozulur ve Klaxon'a alarm gider.</p>#{token_box}#{token_warn}<table>#{rows}</table>")
+  page("Nimbus — Panel", "<h1>Durum paneli</h1><p>Bir bileşene arıza ver; site gerçekten bozulur ve Klaxon telemetriden saptayıp düzeltir.</p><table>#{rows}</table>")
 end
 
 post "/break" do
-  halt 401, "unauthorized" unless authorized?
   component = params[:component]
   fault = params[:fault]
   halt 400, "bad component/fault" unless COMPONENTS.key?(component) && FAULTS_CATALOG.key?(fault)
@@ -179,7 +170,6 @@ end
 # Klaxon calls this to remediate. Clearing happens only if the action matches
 # the fault's real fix — so a wrong remediation leaves the site broken.
 post "/heal" do
-  halt 401, "unauthorized" unless authorized?
   component = params[:component]
   action = params[:action].to_s
   current = fault_of(component)
