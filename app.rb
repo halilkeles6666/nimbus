@@ -100,7 +100,9 @@ get "/panel" do
     heal = "<form method='post' action='/heal' style='display:inline'><input type='hidden' name='component' value='#{key}'><input type='hidden' name='action' value='#{f ? FAULTS_CATALOG[f][0] : ''}'><input type='hidden' name='token' value='#{params[:token]}'><button class='btn small ghost'>düzelt</button></form>"
     "<tr><td><b>#{name}</b><br><small>#{key}</small></td><td>#{f ? "<span class='bad'>#{f}</span> #{heal}" : "<span class='good'>sağlıklı</span>"}</td><td>#{buttons}</td></tr>"
   }.join
-  page("Nimbus — Panel", "<h1>Durum paneli</h1><p>Bir bileşene arıza ver; site gerçekten bozulur ve Klaxon'a alarm gider.</p><table>#{rows}</table>")
+  token_warn = ENV["NIMBUS_TOKEN"].to_s.empty? || !params[:token].to_s.empty? ? "" : "<p style='color:#dc2626'>⚠️ Arıza vermek için önce token gir.</p>"
+  token_box = "<form method='get' action='/panel' style='margin:0 0 14px'><input name='token' value='#{params[:token]}' placeholder='token' style='padding:8px;border:1px solid #e2e8f0;border-radius:8px;min-width:280px'> <button class='btn small'>Uygula</button></form>"
+  page("Nimbus — Panel", "<h1>Durum paneli</h1><p>Bir bileşene arıza ver; site gerçekten bozulur ve Klaxon'a alarm gider.</p>#{token_box}#{token_warn}<table>#{rows}</table>")
 end
 
 post "/break" do
