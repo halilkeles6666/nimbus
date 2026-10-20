@@ -39,12 +39,37 @@ def authorized?
     request.env["HTTP_X_NIMBUS_TOKEN"].to_s == expected
 end
 
-# Push an alert to Klaxon's public JSON ingest when a component breaks.
-def notify_klaxon(component, fault)
-  url = ENV["KLAXON_INGEST_URL"].to_s
-  return if url.empty?
+# ---- telemetry the store reports to Klaxon (self-monitoring) ----------------
 
-  _, symptom = FAULTS_CATALOG[fault]
+# Realistic metrics per component given its (hidden) fault.
+def metrics_for(fault)
+  case fault
+  when "bad_deploy"   then { error_rate: rand(18..26), p95: rand(120..220), count: rand(40..80) }
+  when "overloaded"   then { error_rate: rand(1..4),   p95: rand(1800..3000), count: rand(60..120) }
+  when "crashed", "primary_down" then { error_rate: 100, p95: rand(10..60), count: rand(30..60) }
+  when "queue_stuck"  then { error_rate: rand(1..3),   p95: rand(300..800), count: rand(40..80) }
+  else { error_rate: (rand * 0.4).round(2), p95: rand(90..170), count: rand(40..80) }
+  end
+end
+
+# Snapshot of every component: measured metrics + a log-derived context line.
+def telemetry_snapshot
+  COMPONENTS.keys.to_h do |component|
+    fault = fault_of(component)
+    log = fault ? "#{FAULTS_CATALOG[fault][1]} [kaynak: Nimbus logları]" : "normal"
+    [ component, metrics_for(fault).merge(log: log) ]
+  end
+end
+
+def klaxon_telemetry_url
+  explicit = ENV["KLAXON_TELEMETRY_URL"].to_s
+  return explicit unless explicit.empty?
+  ENV["KLAXON_INGEST_URL"].to_s.sub("/alerts", "/telemetry")
+end
+
+def push_telemetry
+  url = klaxon_telemetry_url
+  return if url.empty?
   uri = URI(url)
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = uri.scheme == "https"
@@ -52,14 +77,10 @@ def notify_klaxon(component, fault)
   http.read_timeout = 8
   req = Net::HTTP::Post.new(uri)
   req["Content-Type"] = "application/json"
-  req.body = JSON.generate(
-    routing_key: component,
-    title: "#{COMPONENTS[component]} sorun yaşıyor",
-    summary: "#{symptom} [kaynak: Nimbus canlı site]",
-    dedup_key: "nimbus-#{component}")
+  req.body = JSON.generate(components: telemetry_snapshot)
   http.request(req)
 rescue => e
-  warn "[Nimbus] Klaxon'a bildirilemedi: #{e.class}: #{e.message}"
+  warn "[Nimbus] telemetri gönderilemedi: #{e.class}: #{e.message}"
 end
 
 # ---- storefront (genuinely errors when faulted) -----------------------------
@@ -146,7 +167,7 @@ post "/break" do
   fault = params[:fault]
   halt 400, "bad component/fault" unless COMPONENTS.key?(component) && FAULTS_CATALOG.key?(fault)
   set_fault(component, fault)
-  Thread.new { notify_klaxon(component, fault) } # fire-and-forget so /break returns fast
+  Thread.new { push_telemetry } # report immediately (self-monitor also reports on a timer)
   if request.accept?("application/json")
     content_type :json
     JSON.generate(ok: true, component: component, fault: fault)
@@ -251,4 +272,15 @@ def page(title, body)
       <footer><div class="wrap">Nimbus · online mağaza · <small>Klaxon demosu için kurgusal bir firmadır</small></div></footer>
     </body></html>
   HTML
+end
+
+# ---- self-monitoring loop: periodically report telemetry to Klaxon ----------
+unless ENV["NIMBUS_NO_MONITOR"] == "1"
+  Thread.new do
+    interval = ENV.fetch("TELEMETRY_INTERVAL", "20").to_i
+    loop do
+      sleep interval
+      push_telemetry
+    end
+  end
 end
