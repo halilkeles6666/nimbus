@@ -76,17 +76,52 @@ def down?(component)
 end
 
 get "/" do
-  halt 503, page("Bir şeyler ters gitti", "<div class='err'>503</div><p>Vitrin şu anda hizmet veremiyor. Ekibimiz durumdan haberdar.</p>") if down?("magaza-vitrin")
-  cards = PRODUCTS.map { |id, name, price, emoji|
-    "<div class='card'><div class='emoji'>#{emoji}</div><div class='name'>#{name}</div><div class='price'>#{price}</div><form method='post' action='/checkout'><button class='btn'>Satın al</button></form></div>"
+  if down?("magaza-vitrin")
+    halt 503, error_page(503, "Vitrin şu anda açılamıyor",
+      "Mağaza geçici olarak hizmet veremiyor. Ekibimiz durumdan haberdar; lütfen birazdan tekrar dene.")
+  end
+  cards = PRODUCTS.map { |_id, name, price, emoji|
+    <<~CARD
+      <article class="card">
+        <div class="thumb">#{emoji}</div>
+        <div class="card-body">
+          <h3>#{name}</h3>
+          <div class="price">#{price}</div>
+          <form method="post" action="/checkout"><button class="btn btn-block">Sepete ekle</button></form>
+        </div>
+      </article>
+    CARD
   }.join
-  page("Nimbus — Vitrin", "<h1>Teknolojiyi yanında taşı.</h1><div class='grid'>#{cards}</div>")
+  hero = <<~HERO
+    <section class="hero">
+      <div class="hero-text">
+        <span class="badge">✨ Yeni sezon</span>
+        <h1>Teknolojiyi<br>yanında taşı.</h1>
+        <p>Nimbus seçkisiyle en sevilen cihazlar; ücretsiz kargo, 2 yıl garanti ve kapıda ödeme ile.</p>
+        <a href="#urunler" class="btn btn-lg">Alışverişe başla</a>
+      </div>
+      <div class="hero-art">☁️</div>
+    </section>
+  HERO
+  page("Nimbus — Online Mağaza",
+    "#{hero}<h2 id='urunler' class='section-title'>Öne çıkanlar</h2><div class='grid'>#{cards}</div>")
 end
 
 post "/checkout" do
-  halt 500, page("Ödeme başarısız", "<div class='err'>500</div><p>Ödeme işlemin şu anda tamamlanamıyor. Lütfen birazdan tekrar dene.</p>") if fault_of("magaza-odeme")
+  if fault_of("magaza-odeme")
+    halt 500, error_page(500, "Ödeme tamamlanamadı",
+      "Ödeme işlemin şu anda gerçekleştirilemiyor. Kartından ücret alınmadı; lütfen birazdan tekrar dene.")
+  end
   ref = "NMB-#{rand(100_000..999_999)}"
-  page("Sipariş alındı", "<div class='ok'>✓</div><h1>Siparişin alındı 🎉</h1><p>Sipariş no: <b>#{ref}</b></p><a class='btn' href='/'>Alışverişe devam</a>")
+  body = <<~DONE
+    <section class="centerbox">
+      <div class="success-ring">✓</div>
+      <h1>Siparişin alındı 🎉</h1>
+      <p class="muted">Sipariş numaran <b>#{ref}</b>. Kargo bilgisi e-postana gönderildi.</p>
+      <a class="btn btn-lg" href="/">Alışverişe devam et</a>
+    </section>
+  DONE
+  page("Sipariş alındı", body)
 end
 
 # ---- control + health + remediation API -------------------------------------
@@ -139,28 +174,81 @@ end
 
 # ---- layout -----------------------------------------------------------------
 
+def error_page(code, heading, message)
+  body = <<~ERR
+    <section class="centerbox">
+      <div class="error-ring">!</div>
+      <div class="error-code">HTTP #{code}</div>
+      <h1>#{heading}</h1>
+      <p class="muted">#{message}</p>
+      <a class="btn btn-lg" href="/">Vitrine dön</a>
+    </section>
+  ERR
+  page("Bir sorun oluştu", body)
+end
+
 def page(title, body)
   <<~HTML
-    <!doctype html><html><head><meta charset="utf-8"><title>#{title}</title>
+    <!doctype html><html lang="tr"><head>
+    <meta charset="utf-8"><title>#{title}</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-      :root{--p:#3062f6;--bg:#eef2f7;--s:#fff;--b:#e2e8f0;--t:#0f172a;--m:#64748b}
-      body{margin:0;background:var(--bg);color:var(--t);font-family:system-ui,Segoe UI,Roboto,sans-serif}
-      .top{background:var(--s);border-bottom:1px solid var(--b);padding:14px 20px;font-weight:800;font-size:20px}
-      .top span{color:var(--p)}
-      .wrap{max-width:900px;margin:0 auto;padding:24px 16px}
-      h1{font-size:26px;margin:.2em 0 .6em}
-      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
-      .card{background:var(--s);border:1px solid var(--b);border-radius:14px;padding:16px;text-align:center}
-      .emoji{font-size:44px}.name{font-weight:600;margin:8px 0 2px}.price{color:var(--p);font-weight:700;margin-bottom:10px}
-      .btn{background:var(--p);color:#fff;border:0;border-radius:9px;padding:9px 14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
-      .btn.small{padding:5px 9px;font-size:12px}.btn.ghost{background:#e2e8f0;color:#0f172a}
-      table{width:100%;border-collapse:collapse;background:var(--s);border:1px solid var(--b);border-radius:12px;overflow:hidden}
-      td{padding:12px;border-bottom:1px solid var(--b);font-size:14px}
-      .good{color:#059669;font-weight:600}.bad{color:#dc2626;font-weight:700}
-      .err{font-size:52px;font-weight:800;color:#dc2626}.ok{font-size:52px;color:#059669}
-      small{color:var(--m)}
+      *{box-sizing:border-box;margin:0;padding:0}
+      :root{--brand:#4f46e5;--brand2:#7c3aed;--ink:#0f172a;--muted:#64748b;--bg:#f6f7fb;--line:#e8ebf2}
+      body{font-family:Inter,system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55}
+      a{color:inherit}
+      .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+      header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+      .nav{display:flex;align-items:center;justify-content:space-between;height:66px}
+      .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:21px;text-decoration:none;letter-spacing:-.01em}
+      .brand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--brand),var(--brand2));display:grid;place-items:center;color:#fff;font-size:15px}
+      .nav a.link{color:var(--muted);text-decoration:none;font-weight:500;margin-left:22px}
+      .nav a.link:hover{color:var(--brand)}
+      main{min-height:calc(100vh - 136px)}
+      .hero{display:grid;grid-template-columns:1.3fr .7fr;gap:20px;align-items:center;background:linear-gradient(135deg,#eef2ff,#faf5ff);border:1px solid var(--line);border-radius:24px;padding:42px;margin:28px 0}
+      .hero h1{font-size:44px;line-height:1.08;letter-spacing:-.025em;margin:12px 0 12px}
+      .hero p{color:var(--muted);max-width:430px;margin-bottom:22px}
+      .hero-art{font-size:120px;text-align:center}
+      .badge{display:inline-block;background:#fff;border:1px solid var(--line);color:var(--brand);font-weight:600;font-size:13px;padding:5px 12px;border-radius:999px}
+      .section-title{font-size:22px;margin:10px 0 16px}
+      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;padding-bottom:44px}
+      .card{background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden;transition:transform .15s,box-shadow .15s}
+      .card:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(79,70,229,.13)}
+      .thumb{font-size:66px;text-align:center;padding:26px 0;background:linear-gradient(135deg,#f8fafc,#eef2ff)}
+      .card-body{padding:16px}
+      .card-body h3{font-size:15px;font-weight:600;margin-bottom:6px}
+      .price{color:var(--brand);font-weight:800;font-size:18px;margin-bottom:12px}
+      .btn{display:inline-block;background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border:0;border-radius:11px;padding:11px 18px;font-weight:600;font-size:14px;cursor:pointer;text-decoration:none;font-family:inherit}
+      .btn:hover{filter:brightness(1.07)}
+      .btn-block{width:100%}.btn-lg{padding:13px 24px;font-size:15px}
+      .btn.small{padding:6px 11px;font-size:12px;border-radius:9px}
+      .btn.ghost{background:#eef2f7;color:var(--ink)}
+      .centerbox{max-width:470px;margin:64px auto;text-align:center;background:#fff;border:1px solid var(--line);border-radius:22px;padding:48px 32px}
+      .success-ring,.error-ring{width:86px;height:86px;border-radius:50%;display:grid;place-items:center;margin:0 auto 18px;font-size:44px;font-weight:800}
+      .success-ring{background:#dcfce7;color:#16a34a}
+      .error-ring{background:#fee2e2;color:#dc2626}
+      .error-code{font-size:13px;font-weight:700;color:#dc2626;letter-spacing:.18em;margin-bottom:6px}
+      .centerbox h1{font-size:24px;margin-bottom:8px}
+      .muted{color:var(--muted);margin-bottom:22px}
+      table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-top:12px}
+      td,th{padding:13px 14px;border-bottom:1px solid var(--line);font-size:14px;text-align:left}
+      th{background:#f8fafc;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+      tr:last-child td{border-bottom:0}
+      h1{font-size:26px;margin:.1em 0 .5em}
+      .good{color:#16a34a;font-weight:600}.bad{color:#dc2626;font-weight:700}
+      small{color:var(--muted)}
+      footer{border-top:1px solid var(--line);background:#fff;color:var(--muted);font-size:13px;padding:22px 0;text-align:center}
+      @media(max-width:720px){.hero{grid-template-columns:1fr;padding:28px}.hero h1{font-size:34px}.hero-art{display:none}}
     </style></head>
-    <body><div class="top"><span>◆</span> Nimbus</div><div class="wrap">#{body}</div></body></html>
+    <body>
+      <header><div class="wrap nav">
+        <a class="brand" href="/"><span class="logo">☁</span> Nimbus</a>
+        <nav><a class="link" href="/">Vitrin</a><a class="link" href="/panel">Durum paneli</a></nav>
+      </div></header>
+      <main><div class="wrap">#{body}</div></main>
+      <footer><div class="wrap">Nimbus · online mağaza · <small>Klaxon demosu için kurgusal bir firmadır</small></div></footer>
+    </body></html>
   HTML
 end
